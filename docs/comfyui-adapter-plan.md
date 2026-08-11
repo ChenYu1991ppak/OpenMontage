@@ -59,8 +59,8 @@ tools/
     client.py              # Shared ComfyUI REST client
     workflows/             # Bundled workflow templates
       flux2-txt2img.json
-      wan22-t2v-4step.json
-      wan22-i2v-4step.json
+      video_minimax_h3_t2v_api.json
+      video_minimax_h3_i2v_api.json
   graphics/
     comfyui_image.py       # capability="image_generation", provider="comfyui"
   video/
@@ -218,13 +218,13 @@ bundled workflows, the known model stack.
 
 **Bundled workflows:**
 
-1. **`wan22-i2v-4step.json`** -- Image-to-video (WAN 2.2 14B, fp8, 4-step LightX2V LoRA)
-2. **`wan22-t2v-4step.json`** -- Text-to-video (WAN 2.2 14B, fp8, 4-step LightX2V LoRA)
+1. **`video_minimax_h3_i2v_api.json`** -- Image-to-video (MiniMax H3 FL2VA, 20 steps, synchronized audio)
+2. **`video_minimax_h3_t2v_api.json`** -- Text-to-video (MiniMax H3 FL2VA, 20 steps, synchronized audio)
 
-These bundled WAN 2.2 14B FP8 workflows are the high-quality profile and
-recommend roughly 16GB VRAM. That is not a ComfyUI-wide requirement. The
+These bundled MiniMax H3 FL2VA workflows are the high-quality profile and
+recommend roughly 32GB VRAM. That is not a ComfyUI-wide requirement. The
 `comfyui_video` tool's top-level `resource_profile` is an 8GB provider floor so
-preflight does not imply ComfyUI itself requires 16GB. Low-VRAM users should use
+preflight does not imply ComfyUI itself requires 32GB. Low-VRAM users should use
 custom workflows such as Wan 2.1 1.3B, LTX-Video/LTXV FP8 or quantized graphs,
 or Wan 2.2 GGUF/quantized community workflows, with shorter frame counts and
 lower resolutions as needed.
@@ -233,11 +233,22 @@ lower resolutions as needed.
 
 | Node | Class | Templated field |
 |------|-------|-----------------|
-| 93 | CLIPTextEncode | `text` (positive prompt) |
-| 97 | LoadImage | `image` (server filename from upload) |
-| 98 | WanImageToVideo | `width`, `height`, `length` |
-| 86 | KSamplerAdvanced | `noise_seed` |
-| 108 | SaveVideo | `filename_prefix` |
+| 114 | LoadImage | `image` (server filename from upload) |
+| 105:104 | MiniMaxH3ImageToVideo | `prompt`, `width`, `height`, `length`, `first_frame` |
+| 105:15 | RandomNoise | `noise_seed` |
+| 92 | SaveVideo | `filename_prefix` |
+
+**T2V workflow -- templated nodes:**
+
+| Node | Class | Templated field |
+|------|-------|-----------------|
+| 105:104 | MiniMaxH3ImageToVideo | `prompt`, `width`, `height`, `length` |
+| 105:15 | RandomNoise | `noise_seed` |
+| 92 | SaveVideo | `filename_prefix` |
+
+Length is snapped up to the model's 17k+5 frame grid at 24fps (124 frames
+~= 5s); the duration-math helper nodes in the exported workflow are dropped
+once the tool patches `length` directly.
 
 **Input schema:**
 
@@ -248,7 +259,7 @@ reference_image_path: string    # local path (for i2v)
 reference_image_url:  string    # URL (for i2v, downloaded first)
 width:                integer   # default 640
 height:               integer   # default 640
-num_frames:           integer   # default 81 (5s at 16fps)
+num_frames:           integer   # default 124 (~5s at 24fps, snapped to 17k+5 grid)
 seed:                 integer   # optional
 output_path:          string    # where to save the video
 workflow_json:        string    # optional custom workflow; requires output_node
@@ -263,13 +274,13 @@ workflow_model_stack: []        # optional custom dependency provenance
 1. Upload reference image via `client.upload_image()`
 2. Deep-copy i2v workflow template
 3. Inject prompt, uploaded image name, seed, dimensions
-4. `client.generate(workflow, output_node="108", dest=output_path, timeout=900)`
+4. `client.generate(workflow, output_node="92", dest=output_path, timeout=1500)`
 5. Return `ToolResult`
 
 **execute() flow (t2v):**
 1. Deep-copy t2v workflow template
 2. Inject prompt, seed, dimensions
-3. `client.generate(workflow, output_node="16", dest=output_path, timeout=900)`
+3. `client.generate(workflow, output_node="92", dest=output_path, timeout=1500)`
 4. Return `ToolResult`
 
 `comfyui_video` publishes `operation_statuses` in `get_info()` and implements
@@ -376,7 +387,7 @@ using OpenMontage's 7-dimension scoring:
 | Dimension | ComfyUI score | Rationale |
 |-----------|---------------|-----------|
 | Task fit | High | Supports t2i, i2v, t2v |
-| Quality | High | Latest models (FLUX 2, WAN 2.2 14B) |
+| Quality | High | Latest models (FLUX 2, MiniMax H3 FL2VA) |
 | Control | Highest | Full workflow customization |
 | Reliability | High | Proven in production |
 | Cost | $0 | Local compute |
@@ -395,8 +406,8 @@ missing mode.
 ### Immediate (with existing models)
 
 - **FLUX 2 Dev NVFP4** image generation -- Blackwell-optimized, ~60s per image
-- **WAN 2.2 14B FP8 high-quality profile** i2v with 4-step acceleration -- ~3.5 min per 5s clip, about 16GB VRAM recommended
-- **WAN 2.2 14B FP8 high-quality profile** t2v (models downloaded, workflow included), about 16GB VRAM recommended
+- **MiniMax H3 FL2VA** i2v with synchronized audio -- ~10 min per ~5s clip, about 32GB VRAM recommended
+- **MiniMax H3 FL2VA** t2v with synchronized audio (models downloaded, workflow included), about 32GB VRAM recommended
 
 ### Low-VRAM profile
 
@@ -409,7 +420,7 @@ appropriate `workflow_json` or `workflow_path`. Good candidates include:
 
 OpenMontage should treat those as custom workflow profiles until a blessed
 low-VRAM workflow is bundled. For custom workflows, resource requirements are
-workflow-supplied rather than inferred from the bundled WAN 2.2 14B profile.
+workflow-supplied rather than inferred from the bundled MiniMax H3 profile.
 
 ### Future (add models to ComfyUI, no code changes to OpenMontage)
 

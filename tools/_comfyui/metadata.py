@@ -21,15 +21,48 @@ COMFYUI_SETUP_OFFER: dict[str, Any] = {
 }
 
 
+_MINIMAX_H3_STACK: list[dict[str, Any]] = [
+    {
+        "role": "diffusion_model",
+        "name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "quantization": "INT8 pruned",
+        "destination_hint": "ComfyUI/models/diffusion_models/",
+        "download_url": "https://huggingface.co/Comfy-Org/MiniMax_H3",
+    },
+    {
+        "role": "text_encoder",
+        "name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "quantization": "NVFP4 AWQ",
+        "destination_hint": "ComfyUI/models/clip/",
+        "download_url": "https://huggingface.co/Comfy-Org/MiniMax_H3",
+    },
+    {
+        "role": "vae",
+        "name": "minimax_h3_video_vae_fp16.safetensors",
+        "quantization": "FP16",
+        "destination_hint": "ComfyUI/models/vae/",
+        "download_url": "https://huggingface.co/Comfy-Org/MiniMax_H3",
+    },
+    {
+        "role": "vae",
+        "name": "minimax_h3_audio_vae_fp32.safetensors",
+        "quantization": "FP32",
+        "destination_hint": "ComfyUI/models/vae/",
+        "download_url": "https://huggingface.co/Comfy-Org/MiniMax_H3",
+    },
+]
+
+
 BUNDLED_MODEL_STACKS: dict[str, list[dict[str, Any]]] = {
     "flux2-txt2img": [
         {
             "role": "diffusion_model",
-            "name": "flux2-dev-nvfp4.safetensors",
-            "quantization": "NVFP4",
+            "name": "flux2_dev_fp8mixed.safetensors",
+            "quantization": "FP8 mixed",
             "destination_hint": "ComfyUI/models/diffusion_models/",
             "download_url": (
-                "https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4"
+                "https://huggingface.co/Comfy-Org/flux2-dev/tree/main/"
+                "split_files/diffusion_models"
             ),
         },
         {
@@ -52,130 +85,8 @@ BUNDLED_MODEL_STACKS: dict[str, list[dict[str, Any]]] = {
             ),
         },
     ],
-    "wan22-t2v-4step": [
-        {
-            "role": "text_encoder",
-            "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/text_encoders/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/text_encoders"
-            ),
-        },
-        {
-            "role": "diffusion_model_high_noise",
-            "name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/diffusion_models/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "blob/main/split_files/diffusion_models/"
-                "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
-            ),
-        },
-        {
-            "role": "diffusion_model_low_noise",
-            "name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/diffusion_models/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/diffusion_models"
-            ),
-        },
-        {
-            "role": "vae",
-            "name": "wan_2.1_vae.safetensors",
-            "destination_hint": "ComfyUI/models/vae/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/"
-                "tree/main/split_files/vae"
-            ),
-        },
-        {
-            "role": "lora",
-            "name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
-            "strength_model": 1.0,
-            "destination_hint": "ComfyUI/models/loras/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/loras"
-            ),
-        },
-        {
-            "role": "lora",
-            "name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
-            "strength_model": 1.0,
-            "destination_hint": "ComfyUI/models/loras/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/loras"
-            ),
-        },
-    ],
-    "wan22-i2v-4step": [
-        {
-            "role": "text_encoder",
-            "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/text_encoders/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/text_encoders"
-            ),
-        },
-        {
-            "role": "diffusion_model_high_noise",
-            "name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/diffusion_models/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "blob/main/split_files/diffusion_models/"
-                "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"
-            ),
-        },
-        {
-            "role": "diffusion_model_low_noise",
-            "name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-            "quantization": "FP8",
-            "destination_hint": "ComfyUI/models/diffusion_models/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/diffusion_models"
-            ),
-        },
-        {
-            "role": "vae",
-            "name": "wan_2.1_vae.safetensors",
-            "destination_hint": "ComfyUI/models/vae/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/"
-                "tree/main/split_files/vae"
-            ),
-        },
-        {
-            "role": "lora",
-            "name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
-            "strength_model": 1.0,
-            "destination_hint": "ComfyUI/models/loras/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/loras"
-            ),
-        },
-        {
-            "role": "lora",
-            "name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
-            "strength_model": 1.0,
-            "destination_hint": "ComfyUI/models/loras/",
-            "download_url": (
-                "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
-                "tree/main/split_files/loras"
-            ),
-        },
-    ],
+    "minimax-h3-t2v": _MINIMAX_H3_STACK,
+    "minimax-h3-i2v": _MINIMAX_H3_STACK,
 }
 
 

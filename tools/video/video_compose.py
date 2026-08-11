@@ -461,6 +461,7 @@ class VideoCompose(BaseTool):
         # fit="cover" scales-to-fill and centre-crops (better for vertical social).
         resolution = "1920x1080"
         fit_mode = "pad"
+        fps = 30
         compose_target = (edit_decisions.get("metadata") or {}).get("compose_target")
         if isinstance(compose_target, dict):
             try:
@@ -474,6 +475,7 @@ class VideoCompose(BaseTool):
                 from lib.media_profiles import get_profile
                 p = get_profile(profile_name)
                 resolution = f"{p.width}x{p.height}"
+                fps = int(p.fps)
             except (ImportError, ValueError):
                 pass
         try:
@@ -571,11 +573,23 @@ class VideoCompose(BaseTool):
                             f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease",
                             f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black",
                         ]
-                    vf_parts: list[str] = [*geom, "setsar=1", "fps=30"]
+                    vf_parts: list[str] = [*geom, "setsar=1", f"fps={fps}"]
                     af_parts: list[str] = []
                     if speed != 1.0:
                         vf_parts.append(f"setpts={1.0/speed}*PTS")
                         af_parts.append(self._build_atempo(speed))
+                    # Honor edit_decisions transitions in the ffmpeg runtime:
+                    # fade in/out are applied per-segment; dissolve becomes a
+                    # short paired fade (soft luminance dip) at the boundary.
+                    tin = cut.get("transition_in")
+                    tout = cut.get("transition_out")
+                    tdur = float(cut.get("transition_duration") or 0.0)
+                    if tin in ("fade", "dissolve") and tdur > 0:
+                        d_in = min(tdur if tin == "fade" else tdur * 0.5, duration)
+                        vf_parts.append(f"fade=t=in:st=0:d={d_in:.2f}")
+                    if tout in ("fade", "dissolve") and tdur > 0:
+                        d_out = min(tdur if tout == "fade" else tdur * 0.5, duration)
+                        vf_parts.append(f"fade=t=out:st={max(0.0, duration - d_out):.2f}:d={d_out:.2f}")
 
                     cmd.extend(["-filter:v", ",".join(vf_parts)])
                     if af_parts:
@@ -586,7 +600,7 @@ class VideoCompose(BaseTool):
                         "-crf", str(crf),
                         "-preset", preset,
                         "-pix_fmt", "yuv420p",
-                        "-r", "30",
+                        "-r", str(fps),
                     ])
 
                     # Audio handling: some source clips have no audio stream
@@ -621,7 +635,7 @@ class VideoCompose(BaseTool):
                             "-crf", str(crf),
                             "-preset", preset,
                             "-pix_fmt", "yuv420p",
-                            "-r", "30",
+                            "-r", str(fps),
                             "-c:a", "aac",
                             "-b:a", "192k",
                             "-ar", "48000",
@@ -658,7 +672,12 @@ class VideoCompose(BaseTool):
                 style = inputs.get("subtitle_style", {})
                 ass_style = self._build_subtitle_style(style)
                 sub_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:")
-                vfilters.append(f"subtitles='{sub_escaped}':force_style='{ass_style}'")
+                fonts_dir = inputs.get("subtitle_fonts_dir")
+                fonts_opt = ""
+                if fonts_dir and Path(fonts_dir).is_dir():
+                    fd_esc = str(Path(fonts_dir).resolve()).replace("\\", "/").replace(":", "\\:")
+                    fonts_opt = f":fontsdir='{fd_esc}'"
+                vfilters.append(f"subtitles='{sub_escaped}':force_style='{ass_style}'{fonts_opt}")
 
             cmd = ["ffmpeg", "-y", "-i", str(final_input)]
 
@@ -1400,7 +1419,11 @@ class VideoCompose(BaseTool):
 
         # --- 2. Slideshow risk check ---
         renderer_family = edit_decisions.get("renderer_family")
-        scenes = scene_plan or []
+        scenes = (
+            (scene_plan or {}).get("scenes", [])
+            if isinstance(scene_plan, dict)
+            else (scene_plan or [])
+        )
 
         # If no scene_plan passed, try to extract scene info from cuts
         if not scenes and resolved_cuts:
@@ -2793,9 +2816,12 @@ class VideoCompose(BaseTool):
         # Layer 2: edit_decisions subtitle style
         if edit_decisions:
             ed_style = edit_decisions.get("subtitles", {}).get("style", {})
-            for k, v in ed_style.items():
-                if v is not None:
-                    resolved[k] = v
+            # Per schema, `style` may be a preset NAME ("sentence", "karaoke").
+            # Only dict styles carry per-key overrides.
+            if isinstance(ed_style, dict):
+                for k, v in ed_style.items():
+                    if v is not None:
+                        resolved[k] = v
 
         # Layer 3: Explicit override (highest priority)
         if explicit_style:

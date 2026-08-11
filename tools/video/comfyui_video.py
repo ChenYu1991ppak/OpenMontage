@@ -1,8 +1,8 @@
 """ComfyUI video generation via a local or remote ComfyUI server.
 
-Supports text-to-video and image-to-video using WAN 2.2 14B with
-4-step LightX2V LoRA acceleration.  Custom workflows are accepted
-via the ``workflow_json`` input.
+Supports text-to-video and image-to-video using MiniMax H3 (FL2VA)
+native ComfyUI workflows with synchronized audio.  Custom workflows
+are accepted via the ``workflow_json`` input.
 """
 
 from __future__ import annotations
@@ -38,29 +38,29 @@ from tools._comfyui.metadata import (
 _WORKFLOWS = Path(__file__).resolve().parent.parent / "_comfyui" / "workflows"
 
 # Output node IDs in the bundled workflows
-_T2V_OUTPUT_NODE = "16"
-_I2V_OUTPUT_NODE = "108"
+_T2V_OUTPUT_NODE = "92"
+_I2V_OUTPUT_NODE = "92"
 
-# Models required by the bundled WAN 2.2 workflows
-_REQUIRED_MODELS_COMMON = [
-    "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+# Bundled MiniMax H3 workflows (API format)
+_T2V_WORKFLOW_KEY = "minimax-h3-t2v"
+_I2V_WORKFLOW_KEY = "minimax-h3-i2v"
+_T2V_WORKFLOW_FILE = "video_minimax_h3_t2v_api.json"
+_I2V_WORKFLOW_FILE = "video_minimax_h3_i2v_api.json"
+
+# MiniMax H3 native framerate and length grid (17k + 5 frames)
+_H3_FPS = 24
+_H3_LENGTH_STEP = 17
+_H3_LENGTH_OFFSET = 5
+
+# Models required by the bundled MiniMax H3 workflows (shared by T2V/I2V)
+_REQUIRED_MODELS_H3 = [
+    "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+    "minimax_h3_video_vae_fp16.safetensors",
+    "minimax_h3_audio_vae_fp32.safetensors",
 ]
-_REQUIRED_MODELS_I2V = [
-    *_REQUIRED_MODELS_COMMON,
-    "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
-    "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-    "wan_2.1_vae.safetensors",
-    "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
-    "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
-]
-_REQUIRED_MODELS_T2V = [
-    *_REQUIRED_MODELS_COMMON,
-    "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
-    "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
-    "wan_2.1_vae.safetensors",
-    "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
-    "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
-]
+_REQUIRED_MODELS_I2V = list(_REQUIRED_MODELS_H3)
+_REQUIRED_MODELS_T2V = list(_REQUIRED_MODELS_H3)
 
 _RESOURCE_PROFILES = {
     "provider_floor": {
@@ -71,11 +71,11 @@ _RESOURCE_PROFILES = {
             "Actual requirements depend on workflow_json/workflow_path."
         ),
     },
-    "bundled_wan22_14b_fp8": {
-        "vram_mb": 16000,
-        "ram_mb": 32000,
+    "bundled_minimax_h3_fl2va": {
+        "vram_mb": 32000,
+        "ram_mb": 64000,
         "applies_to": (
-            "Bundled WAN 2.2 14B FP8 T2V/I2V workflows. This is not a "
+            "Bundled MiniMax H3 FL2VA T2V/I2V workflows. This is not a "
             "ComfyUI provider-wide requirement."
         ),
     },
@@ -107,9 +107,10 @@ class ComfyUIVideo(BaseTool):
     install_instructions = (
         "Start a ComfyUI server and set COMFYUI_SERVER_URL "
         "(default http://localhost:8188).\n"
-        "Requires WAN 2.2 models and LightX2V LoRAs in ComfyUI's model directory."
+        "Requires MiniMax H3 models (FL2VA diffusion, Qwen3VL-32B CLIP, "
+        "video + audio VAEs) in ComfyUI's model directories."
     )
-    agent_skills = ["comfyui", "ai-video-gen", "ltx2"]
+    agent_skills = ["comfyui", "ai-video-gen"]
 
     capabilities = ["text_to_video", "image_to_video"]
     supports = {
@@ -121,15 +122,15 @@ class ComfyUIVideo(BaseTool):
     }
     best_for = [
         "local GPU video generation without API costs",
-        "Blackwell / DGX Spark hardware where diffusers is unsupported",
-        "image-to-video with WAN 2.2 14B (4-step accelerated)",
-        "text-to-video with WAN 2.2 14B (4-step accelerated)",
+        "high-quality video with synchronized audio (MiniMax H3 native)",
+        "image-to-video with MiniMax H3 FL2VA",
+        "text-to-video with MiniMax H3 FL2VA",
         "custom low-VRAM ComfyUI workflows on 8GB-12GB GPUs",
     ]
     not_good_for = [
         "setups without a running ComfyUI server",
         "CPU-only machines",
-        "running the bundled WAN 2.2 14B FP8 workflows on GPUs below 16GB VRAM",
+        "running the bundled MiniMax H3 FL2VA workflows on GPUs below 24GB VRAM",
     ]
     fallback = "wan_video"
     fallback_tools = ["wan_video", "hunyuan_video", "ltx_video_local", "kling_video"]
@@ -154,7 +155,11 @@ class ComfyUIVideo(BaseTool):
             },
             "width": {"type": "integer", "default": 832, "description": "T2V default 832, I2V default 640"},
             "height": {"type": "integer", "default": 480, "description": "T2V default 480, I2V default 640"},
-            "num_frames": {"type": "integer", "default": 81, "description": "81 frames = 5s at 16fps"},
+            "num_frames": {
+                "type": "integer",
+                "default": 124,
+                "description": "124 frames = ~5s at 24fps (snapped up to the model's 17k+5 grid)",
+            },
             "seed": {"type": "integer", "description": "Random if omitted"},
             "output_path": {"type": "string", "description": "Where to save the video"},
             "workflow_json": {
@@ -236,13 +241,13 @@ class ComfyUIVideo(BaseTool):
         info["resource_profiles"] = _RESOURCE_PROFILES
         info["setup_offer"] = self.setup_offer
         info["bundled_model_stacks"] = {
-            "text_to_video": BUNDLED_MODEL_STACKS["wan22-t2v-4step"],
-            "image_to_video": BUNDLED_MODEL_STACKS["wan22-i2v-4step"],
+            "text_to_video": BUNDLED_MODEL_STACKS[_T2V_WORKFLOW_KEY],
+            "image_to_video": BUNDLED_MODEL_STACKS[_I2V_WORKFLOW_KEY],
         }
         info["resource_profile_note"] = (
             "The top-level resource_profile is a ComfyUI provider floor, not a "
-            "promise that every workflow fits 8GB VRAM. Bundled WAN 2.2 14B FP8 "
-            "workflows recommend 16GB VRAM; custom low-VRAM workflows can target "
+            "promise that every workflow fits 8GB VRAM. Bundled MiniMax H3 FL2VA "
+            "workflows recommend 32GB VRAM; custom low-VRAM workflows can target "
             "8GB-12GB depending on model, quantization, resolution, and frame count."
         )
         return info
@@ -253,8 +258,8 @@ class ComfyUIVideo(BaseTool):
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
         operation = inputs.get("operation", "text_to_video")
         if operation == "image_to_video":
-            return 210.0  # ~3.5 min
-        return 240.0  # ~4 min
+            return 600.0  # ~10 min (20-step FL2VA + 32B CLIP)
+        return 600.0  # ~10 min
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         custom_workflow = bool(inputs.get("workflow_json") or inputs.get("workflow_path"))
@@ -280,16 +285,21 @@ class ComfyUIVideo(BaseTool):
             _, missing = self._client.check_models(required)
             if missing:
                 workflow_key = (
-                    "wan22-i2v-4step"
+                    _I2V_WORKFLOW_KEY
                     if operation == "image_to_video"
-                    else "wan22-t2v-4step"
+                    else _T2V_WORKFLOW_KEY
+                )
+                workflow_name = (
+                    _I2V_WORKFLOW_FILE
+                    if operation == "image_to_video"
+                    else _T2V_WORKFLOW_FILE
                 )
                 return ToolResult(
                     success=False,
                     data=missing_models_payload(
                         missing,
                         workflow_key=workflow_key,
-                        workflow_name=f"{workflow_key}.json",
+                        workflow_name=workflow_name,
                         operation=operation,
                     ),
                     error=(
@@ -320,7 +330,7 @@ class ComfyUIVideo(BaseTool):
                 workflow,
                 output_node=output_node,
                 dest=output_path,
-                timeout=900,
+                timeout=1500,
                 interval=10,
             )
 
@@ -331,7 +341,13 @@ class ComfyUIVideo(BaseTool):
 
         width = inputs.get("width", 832 if operation == "text_to_video" else 640)
         height = inputs.get("height", 480 if operation == "text_to_video" else 640)
-        num_frames = inputs.get("num_frames", 81)
+        requested_frames = inputs.get("num_frames", 124)
+        num_frames = (
+            requested_frames
+            if custom_workflow
+            else ComfyUIVideo._h3_length(requested_frames)
+        )
+        fps = _H3_FPS
 
         model_name = self._model_name(inputs, custom_workflow)
         return ToolResult(
@@ -344,8 +360,8 @@ class ComfyUIVideo(BaseTool):
                 "width": width,
                 "height": height,
                 "num_frames": num_frames,
-                "fps": 16,
-                "duration_seconds": round(num_frames / 16, 2),
+                "fps": fps,
+                "duration_seconds": round(num_frames / fps, 2),
                 "output": str(paths[0]),
                 "format": "mp4",
                 "workflow_provenance": provenance,
@@ -364,25 +380,33 @@ class ComfyUIVideo(BaseTool):
     def _build_t2v(
         self, inputs: dict[str, Any], seed: int, output_path: Path
     ) -> tuple[dict, str]:
-        width = inputs.get("width", 832)
-        height = inputs.get("height", 480)
-        num_frames = inputs.get("num_frames", 81)
+        width = ComfyUIVideo._snap_multiple(inputs.get("width", 832), 32, 32)
+        height = ComfyUIVideo._snap_multiple(inputs.get("height", 480), 32, 32)
+        length = ComfyUIVideo._h3_length(inputs.get("num_frames", 124))
 
-        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "wan22-t2v-4step.json")
+        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / _T2V_WORKFLOW_FILE)
         workflow = ComfyUIClient.patch_workflow(workflow, {
-            "2": {"text": inputs["prompt"]},
-            "11": {"width": width, "height": height, "batch_size": num_frames},
-            "12": {"noise_seed": seed},
-            "16": {"filename_prefix": output_path.stem},
+            "105:104": {
+                "prompt": inputs["prompt"],
+                "width": width,
+                "height": height,
+                "length": length,
+            },
+            "105:15": {"noise_seed": seed},
+            "92": {"filename_prefix": output_path.stem},
         })
+        # Length is patched directly, so the duration-math helper nodes are no
+        # longer wired; drop them to avoid depending on extra custom nodes.
+        workflow.pop("105:107", None)
+        workflow.pop("105:111", None)
         return workflow, _T2V_OUTPUT_NODE
 
     def _build_i2v(
         self, inputs: dict[str, Any], seed: int, output_path: Path
     ) -> tuple[dict, str]:
-        width = inputs.get("width", 640)
-        height = inputs.get("height", 640)
-        num_frames = inputs.get("num_frames", 81)
+        width = ComfyUIVideo._snap_multiple(inputs.get("width", 640), 32, 32)
+        height = ComfyUIVideo._snap_multiple(inputs.get("height", 640), 32, 32)
+        length = ComfyUIVideo._h3_length(inputs.get("num_frames", 124))
 
         # Resolve reference image
         ref_path = inputs.get("reference_image_path")
@@ -405,15 +429,34 @@ class ComfyUIVideo(BaseTool):
         upload_name = f"om_{output_path.stem}.png"
         server_name = self._client.upload_image(Path(ref_path), upload_name)
 
-        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "wan22-i2v-4step.json")
+        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / _I2V_WORKFLOW_FILE)
         workflow = ComfyUIClient.patch_workflow(workflow, {
-            "93": {"text": inputs["prompt"]},
-            "97": {"image": server_name},
-            "98": {"width": width, "height": height, "length": num_frames},
-            "86": {"noise_seed": seed},
-            "108": {"filename_prefix": output_path.stem},
+            "114": {"image": server_name},
+            "105:104": {
+                "prompt": inputs["prompt"],
+                "width": width,
+                "height": height,
+                "length": length,
+            },
+            "105:15": {"noise_seed": seed},
+            "92": {"filename_prefix": output_path.stem},
         })
+        # Length is patched directly, so the duration-math helper nodes are no
+        # longer wired; drop them to avoid depending on extra custom nodes.
+        workflow.pop("105:107", None)
+        workflow.pop("105:111", None)
         return workflow, _I2V_OUTPUT_NODE
+
+    @staticmethod
+    def _snap_multiple(value: int, step: int, minimum: int = 1) -> int:
+        """Snap a dimension down to the nearest multiple of ``step``."""
+        return max(minimum, (int(value) // step) * step)
+
+    @staticmethod
+    def _h3_length(num_frames: int) -> int:
+        """MiniMax H3 frame length snapped to the model's 17k+5 grid."""
+        base = max(_H3_LENGTH_OFFSET, int(num_frames))
+        return base + (_H3_LENGTH_OFFSET - base % _H3_LENGTH_STEP) % _H3_LENGTH_STEP
 
     @staticmethod
     def _load_custom_workflow(inputs: dict[str, Any]) -> dict:
@@ -424,7 +467,7 @@ class ComfyUIVideo(BaseTool):
     @staticmethod
     def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:
         if not custom_workflow:
-            return "wan2.2-14b-fp8-4step"
+            return "minimax-h3-fl2va-int8"
         return (
             inputs.get("workflow_model")
             or inputs.get("model")
@@ -442,16 +485,16 @@ class ComfyUIVideo(BaseTool):
     ) -> dict[str, Any]:
         if not custom_workflow:
             workflow_key = (
-                "wan22-i2v-4step"
+                _I2V_WORKFLOW_KEY
                 if operation == "image_to_video"
-                else "wan22-t2v-4step"
+                else _T2V_WORKFLOW_KEY
             )
             return {
                 "source": "bundled",
                 "workflow": (
-                    "wan22-i2v-4step.json"
+                    _I2V_WORKFLOW_FILE
                     if operation == "image_to_video"
-                    else "wan22-t2v-4step.json"
+                    else _T2V_WORKFLOW_FILE
                 ),
                 "workflow_hash_sha256": workflow_hash(workflow),
                 "model_stack": model_stack(workflow_key, inputs),

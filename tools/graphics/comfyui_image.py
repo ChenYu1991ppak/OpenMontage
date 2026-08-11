@@ -36,7 +36,7 @@ _WORKFLOWS = Path(__file__).resolve().parent.parent / "_comfyui" / "workflows"
 
 # Models required by the bundled flux2-txt2img workflow
 _REQUIRED_MODELS = [
-    "flux2-dev-nvfp4.safetensors",
+    "flux2_dev_fp8mixed.safetensors",
     "mistral_3_small_flux2_fp4_mixed.safetensors",
     "flux2-vae.safetensors",
 ]
@@ -256,7 +256,7 @@ class ComfyUIImage(BaseTool):
     @staticmethod
     def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:
         if not custom_workflow:
-            return "flux2-dev-nvfp4"
+            return "flux2-dev-fp8mixed"
         return (
             inputs.get("workflow_model")
             or inputs.get("model")

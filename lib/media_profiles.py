@@ -118,6 +118,15 @@ CINEMATIC = MediaProfile(
     notes="Cinematic ultra-wide format",
 )
 
+CINEMATIC_1080P24 = MediaProfile(
+    name="cinematic_1080p24",
+    width=1920, height=1080,
+    aspect_ratio=AspectRatio.LANDSCAPE_16_9,
+    fps=24, codec="libx264", audio_codec="aac", crf=18,
+    caption_format="srt",
+    notes="Cinematic 1080p 16:9 @ 24fps (theatrical frame rate)",
+)
+
 GENERIC_HD = MediaProfile(
     name="generic_hd",
     width=1920, height=1080,
@@ -134,7 +143,7 @@ ALL_PROFILES: dict[str, MediaProfile] = {
     p.name: p for p in [
         YOUTUBE_LANDSCAPE, YOUTUBE_4K, YOUTUBE_SHORTS,
         INSTAGRAM_REELS, INSTAGRAM_FEED,
-        TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD,
+        TIKTOK, LINKEDIN, CINEMATIC, CINEMATIC_1080P24, GENERIC_HD,
     ]
 }
 

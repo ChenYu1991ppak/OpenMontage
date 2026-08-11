@@ -97,9 +97,9 @@ class TestContract:
         info = tool.get_info()
         assert info["resource_profile"]["vram_mb"] == 8000
         assert info["resource_profiles"]["provider_floor"]["vram_mb"] == 8000
-        assert info["resource_profiles"]["bundled_wan22_14b_fp8"]["vram_mb"] == 16000
+        assert info["resource_profiles"]["bundled_minimax_h3_fl2va"]["vram_mb"] == 32000
         assert "not a ComfyUI provider-wide requirement" in (
-            info["resource_profiles"]["bundled_wan22_14b_fp8"]["applies_to"]
+            info["resource_profiles"]["bundled_minimax_h3_fl2va"]["applies_to"]
         )
 
     def test_status_unavailable_without_server(self, cls):
@@ -134,8 +134,8 @@ class TestContract:
 
 EXPECTED_WORKFLOWS = [
     "flux2-txt2img.json",
-    "wan22-i2v-4step.json",
-    "wan22-t2v-4step.json",
+    "video_minimax_h3_i2v_api.json",
+    "video_minimax_h3_t2v_api.json",
 ]
 
 
@@ -158,34 +158,36 @@ def test_flux2_workflow_has_templated_nodes():
 
 
 def test_i2v_workflow_has_templated_nodes():
-    with open(WORKFLOW_DIR / "wan22-i2v-4step.json") as f:
+    with open(WORKFLOW_DIR / "video_minimax_h3_i2v_api.json") as f:
         w = json.load(f)
-    assert "93" in w   # CLIPTextEncode (prompt)
-    assert "97" in w   # LoadImage (reference)
-    assert "86" in w   # KSamplerAdvanced (seed)
-    assert "108" in w  # SaveVideo (output)
+    assert "114" in w     # LoadImage (reference)
+    assert "105:104" in w  # MiniMaxH3ImageToVideo (prompt + first_frame)
+    assert "105:15" in w   # RandomNoise (seed)
+    assert "92" in w       # SaveVideo (output)
+    assert w["105:104"]["inputs"]["first_frame"] == ["114", 0]
 
 
 def test_t2v_workflow_has_templated_nodes():
-    with open(WORKFLOW_DIR / "wan22-t2v-4step.json") as f:
+    with open(WORKFLOW_DIR / "video_minimax_h3_t2v_api.json") as f:
         w = json.load(f)
-    assert "2" in w   # CLIPTextEncode (prompt)
-    assert "12" in w  # KSamplerAdvanced (seed)
-    assert "16" in w  # SaveVideo (output)
+    assert "105:104" in w  # MiniMaxH3ImageToVideo (prompt)
+    assert "105:15" in w   # RandomNoise (seed)
+    assert "92" in w       # SaveVideo (output)
+    assert "first_frame" not in w["105:104"]["inputs"]
 
 
-def test_t2v_workflow_uses_14b_compatible_vae():
-    with open(WORKFLOW_DIR / "wan22-t2v-4step.json") as f:
+def test_t2v_workflow_uses_h3_video_vae():
+    with open(WORKFLOW_DIR / "video_minimax_h3_t2v_api.json") as f:
         w = json.load(f)
-    assert w["4"]["inputs"]["vae_name"] == "wan_2.1_vae.safetensors"
+    assert w["105:11"]["inputs"]["vae_name"] == "minimax_h3_video_vae_fp16.safetensors"
 
 
-def test_t2v_metadata_stack_uses_14b_compatible_vae():
+def test_t2v_metadata_stack_uses_h3_video_vae():
     from tools._comfyui.metadata import BUNDLED_MODEL_STACKS
 
-    vae_entry = next(item for item in BUNDLED_MODEL_STACKS["wan22-t2v-4step"] if item["role"] == "vae")
-    assert vae_entry["name"] == "wan_2.1_vae.safetensors"
-    assert "Wan_2.1_ComfyUI_repackaged" in vae_entry["download_url"]
+    vae_entry = next(item for item in BUNDLED_MODEL_STACKS["minimax-h3-t2v"] if item["role"] == "vae")
+    assert vae_entry["name"] == "minimax_h3_video_vae_fp16.safetensors"
+    assert "MiniMax_H3" in vae_entry["download_url"]
 
 
 # ------------------------------------------------------------------
@@ -325,12 +327,14 @@ class TestModelRequirements:
     def test_video_tool_has_required_models_i2v(self):
         from tools.video.comfyui_video import _REQUIRED_MODELS_I2V
         assert len(_REQUIRED_MODELS_I2V) > 0
-        assert any("i2v" in m.lower() for m in _REQUIRED_MODELS_I2V)
+        assert any("minimax" in m.lower() for m in _REQUIRED_MODELS_I2V)
+        assert "minimax_h3_fl2va_pruned_int8_convrot.safetensors" in _REQUIRED_MODELS_I2V
 
     def test_video_tool_has_required_models_t2v(self):
         from tools.video.comfyui_video import _REQUIRED_MODELS_T2V
         assert len(_REQUIRED_MODELS_T2V) > 0
-        assert any("t2v" in m.lower() for m in _REQUIRED_MODELS_T2V)
+        assert any("minimax" in m.lower() for m in _REQUIRED_MODELS_T2V)
+        assert "minimax_h3_fl2va_pruned_int8_convrot.safetensors" in _REQUIRED_MODELS_T2V
 
 
 # ------------------------------------------------------------------
@@ -439,14 +443,14 @@ class TestCustomWorkflowContract:
         tool._client.is_available = lambda: True
         tool._client.check_models = lambda required: (
             [],
-            ["wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"],
+            ["minimax_h3_fl2va_pruned_int8_convrot.safetensors"],
         )
 
         result = tool.execute({"prompt": "test", "operation": "text_to_video"})
 
         assert result.success is False
         assert result.data["operation"] == "text_to_video"
-        assert result.data["missing_models"][0]["role"] == "diffusion_model_high_noise"
+        assert result.data["missing_models"][0]["role"] == "diffusion_model"
         assert result.data["missing_models"][0]["download_url"]
 
     def test_bundled_workflow_provenance_records_hash_and_stack(self, tmp_path):
@@ -497,9 +501,10 @@ class TestVideoOperationReadiness:
         tool._client.is_available = lambda: True
 
         def fake_check_models(required):
-            if required == _REQUIRED_MODELS_T2V:
+            # H3 T2V/I2V share the same model set, so distinguish by identity.
+            if required is _REQUIRED_MODELS_T2V:
                 return list(required), []
-            if required == _REQUIRED_MODELS_I2V:
+            if required is _REQUIRED_MODELS_I2V:
                 return [], list(required)
             return [], list(required)
 
@@ -564,8 +569,8 @@ class TestVideoOperationReadiness:
 # ------------------------------------------------------------------
 
 class _DegradedComfyVideo(BaseTool):
-    """Server reachable, but bundled WAN models missing -> DEGRADED, no
-    operation ready. Stands in for comfyui_video on a low-VRAM box."""
+    """Server reachable, but bundled MiniMax H3 models missing -> DEGRADED,
+    no operation ready. Stands in for comfyui_video on a low-VRAM box."""
 
     name = "comfyui_video"
     capability = "video_generation"
