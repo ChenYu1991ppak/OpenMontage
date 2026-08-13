@@ -83,9 +83,9 @@ _RESOURCE_PROFILES = {
         "vram_mb": "8000-12000",
         "ram_mb": "16000-32000",
         "examples": [
-            "Wan 2.1 1.3B",
+            "MiniMax H3 FL2VA int8-pruned community workflows",
             "LTX-Video / LTXV FP8 or quantized workflows",
-            "Wan 2.2 GGUF / quantized community workflows",
+            "CogVideoX / HunyuanVideo quantized community workflows",
         ],
     },
 }
@@ -350,6 +350,7 @@ class ComfyUIVideo(BaseTool):
         fps = _H3_FPS
 
         model_name = self._model_name(inputs, custom_workflow)
+        cleanup = self._client.last_cleanup
         return ToolResult(
             success=True,
             data={
@@ -365,6 +366,11 @@ class ComfyUIVideo(BaseTool):
                 "output": str(paths[0]),
                 "format": "mp4",
                 "workflow_provenance": provenance,
+                "server_cleanup": {
+                    "attempted": cleanup["attempted"],
+                    "history_deleted": cleanup["attempted"] and cleanup["ok"],
+                    "warnings": self._client.last_cleanup_warnings,
+                },
             },
             artifacts=[str(p) for p in paths],
             cost_usd=0.0,

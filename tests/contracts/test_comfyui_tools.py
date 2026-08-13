@@ -134,6 +134,7 @@ class TestContract:
 
 EXPECTED_WORKFLOWS = [
     "flux2-txt2img.json",
+    "image_qwen_image_edit_2511_api.json",
     "video_minimax_h3_i2v_api.json",
     "video_minimax_h3_t2v_api.json",
 ]
@@ -155,6 +156,18 @@ def test_flux2_workflow_has_templated_nodes():
     assert "4" in w  # CLIPTextEncode (prompt)
     assert "7" in w  # RandomNoise (seed)
     assert "13" in w  # SaveImage (output)
+
+
+def test_qwen_edit_workflow_has_templated_nodes():
+    with open(WORKFLOW_DIR / "image_qwen_image_edit_2511_api.json") as f:
+        w = json.load(f)
+    assert "41" in w       # LoadImage (source image)
+    assert "170:151" in w  # positive edit instruction
+    assert "170:149" in w  # negative prompt
+    assert "170:169" in w  # KSampler (seed)
+    assert "9" in w        # SaveImage (output)
+    assert w["41"]["class_type"] == "LoadImage"
+    assert w["170:151"]["inputs"]["prompt"] == "给人物换一套西装"
 
 
 def test_i2v_workflow_has_templated_nodes():
@@ -276,7 +289,12 @@ class TestClientHelpers:
 
         monkeypatch.setattr(client, "download", fake_download)
 
-        client.generate({"9": {"inputs": {}}}, "9", tmp_path / "preview.png")
+        client.generate(
+            {"9": {"inputs": {}}},
+            "9",
+            tmp_path / "preview.png",
+            cleanup_history=False,
+        )
 
         assert seen == {
             "filename": "preview.png",
@@ -312,6 +330,178 @@ class TestClientHelpers:
         assert "myhost:9999" in msg
         assert "COMFYUI_SERVER_URL" not in msg
 
+    # --- server history cleanup -------------------------------------------------
+
+    def _make_generate_client(self, monkeypatch, tmp_path):
+        """ComfyUIClient whose submit/poll/download hit no network."""
+        from tools._comfyui.client import ComfyUIClient
+
+        client = ComfyUIClient("http://comfy.test")
+        monkeypatch.setattr(client, "submit", lambda workflow: "prompt-1")
+        monkeypatch.setattr(
+            client,
+            "poll",
+            lambda prompt_id, **kwargs: {
+                "outputs": {
+                    "9": {
+                        "images": [{
+                            "filename": "out.png",
+                            "subfolder": "",
+                            "type": "output",
+                        }]
+                    }
+                }
+            },
+        )
+        monkeypatch.setattr(
+            client,
+            "download",
+            lambda filename, subfolder, dest, folder_type="output": Path(dest),
+        )
+        return client
+
+    def test_generate_deletes_history_after_success(self, monkeypatch, tmp_path):
+        client = self._make_generate_client(monkeypatch, tmp_path)
+        deleted = []
+        monkeypatch.setattr(
+            client,
+            "delete_history",
+            lambda prompt_id: deleted.append(prompt_id) or (True, "ok"),
+        )
+
+        paths = client.generate({}, "9", tmp_path / "out.png")
+
+        assert paths
+        assert deleted == ["prompt-1"]
+        assert client.last_cleanup == {
+            "attempted": True,
+            "ok": True,
+            "message": "ok",
+        }
+        assert client.last_cleanup_warnings == []
+
+    def test_generate_keeps_history_when_env_keep_set(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("COMFYUI_KEEP_SERVER_OUTPUTS", "1")
+        client = self._make_generate_client(monkeypatch, tmp_path)
+        deleted = []
+        monkeypatch.setattr(
+            client,
+            "delete_history",
+            lambda prompt_id: deleted.append(prompt_id) or (True, "ok"),
+        )
+
+        paths = client.generate({}, "9", tmp_path / "out.png")
+
+        assert paths
+        assert deleted == []
+        assert client.last_cleanup["attempted"] is False
+
+    def test_generate_cleanup_failure_is_best_effort(self, monkeypatch, tmp_path):
+        client = self._make_generate_client(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            client, "delete_history", lambda prompt_id: (False, "boom")
+        )
+
+        paths = client.generate({}, "9", tmp_path / "out.png")
+
+        # Download result is returned regardless of cleanup failure.
+        assert paths
+        assert client.last_cleanup["attempted"] is True
+        assert client.last_cleanup["ok"] is False
+        assert client.last_cleanup_warnings == ["boom"]
+
+    def test_generate_cleanup_history_false_forces_skip(self, monkeypatch, tmp_path):
+        client = self._make_generate_client(monkeypatch, tmp_path)
+        deleted = []
+        monkeypatch.setattr(
+            client,
+            "delete_history",
+            lambda prompt_id: deleted.append(prompt_id) or (True, "ok"),
+        )
+
+        paths = client.generate(
+            {}, "9", tmp_path / "out.png", cleanup_history=False
+        )
+
+        assert paths
+        assert deleted == []
+        assert client.last_cleanup["attempted"] is False
+
+    def test_delete_history_posts_correct_payload(self, monkeypatch):
+        from tools._comfyui.client import ComfyUIClient
+
+        seen = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                return None
+
+        def fake_post(url, json=None, timeout=15):
+            seen["url"] = url
+            seen["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("tools._comfyui.client.requests.post", fake_post)
+
+        client = ComfyUIClient("http://comfy.test")
+        ok, msg = client.delete_history("prompt-9")
+
+        assert ok is True
+        assert "Deleted" in msg
+        assert seen["url"] == "http://comfy.test/history/prompt-9"
+        assert seen["json"] == {"delete": ["prompt-9"]}
+
+    def test_delete_history_failure_never_raises(self, monkeypatch):
+        from tools._comfyui.client import ComfyUIClient
+
+        def fake_post(url, json=None, timeout=15):
+            raise ConnectionError("down")
+
+        monkeypatch.setattr("tools._comfyui.client.requests.post", fake_post)
+
+        client = ComfyUIClient("http://comfy.test")
+        ok, msg = client.delete_history("prompt-9")
+
+        assert ok is False
+        assert "prompt-9" in msg
+
+    def test_delete_history_falls_back_on_405(self, monkeypatch):
+        from tools._comfyui.client import ComfyUIClient
+
+        calls = []
+
+        class Fake405:
+            status_code = 405
+            reason = "Method Not Allowed"
+
+            def raise_for_status(self):
+                raise RuntimeError("405")
+
+        class FakeOK:
+            status_code = 200
+
+            def raise_for_status(self):
+                return None
+
+        def fake_post(url, json=None, timeout=15):
+            calls.append(url)
+            if url.endswith("/history/prompt-9"):
+                return Fake405()
+            return FakeOK()
+
+        monkeypatch.setattr("tools._comfyui.client.requests.post", fake_post)
+
+        client = ComfyUIClient("http://comfy.test")
+        ok, msg = client.delete_history("prompt-9")
+
+        assert ok is True
+        assert calls == [
+            "http://comfy.test/history/prompt-9",
+            "http://comfy.test/history",
+        ]
+
 
 # ------------------------------------------------------------------
 # Model discovery (offline, no server needed)
@@ -335,6 +525,32 @@ class TestModelRequirements:
         assert len(_REQUIRED_MODELS_T2V) > 0
         assert any("minimax" in m.lower() for m in _REQUIRED_MODELS_T2V)
         assert "minimax_h3_fl2va_pruned_int8_convrot.safetensors" in _REQUIRED_MODELS_T2V
+
+    def test_image_tool_has_qwen_edit_required_models(self):
+        from tools.graphics.comfyui_image import _QWEN_EDIT_MODELS
+        assert len(_QWEN_EDIT_MODELS) == 4
+        assert "qwen_image_edit_2511_fp8mixed.safetensors" in _QWEN_EDIT_MODELS
+        assert "qwen_2.5_vl_7b_fp8_scaled.safetensors" in _QWEN_EDIT_MODELS
+        assert "qwen_image_vae.safetensors" in _QWEN_EDIT_MODELS
+        assert (
+            "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-fp32.safetensors"
+            in _QWEN_EDIT_MODELS
+        )
+
+    def test_qwen_edit_metadata_stack_has_all_roles(self):
+        from tools._comfyui.metadata import BUNDLED_MODEL_STACKS
+
+        stack = BUNDLED_MODEL_STACKS["qwen-image-edit-2511"]
+        roles = {item["role"] for item in stack}
+        assert roles == {"diffusion_model", "text_encoder", "vae", "lora"}
+        for item in stack:
+            assert item["name"]
+            assert item["destination_hint"]
+            assert item["download_url"]
+        vae_entry = next(item for item in stack if item["role"] == "vae")
+        assert vae_entry["name"] == "qwen_image_vae.safetensors"
+        assert vae_entry["destination_hint"] == "ComfyUI/models/vae/"
+        assert "Qwen-Image-Edit" in vae_entry["download_url"]
 
 
 # ------------------------------------------------------------------
@@ -405,6 +621,25 @@ class TestCustomWorkflowContract:
             "unknown_custom_workflow"
         )
 
+    def test_result_reports_server_cleanup_outcome(self, tmp_path):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.generate = lambda workflow, output_node, dest, **kwargs: [Path(dest)]
+
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_json": json.dumps({"99": {"inputs": {}}}),
+            "output_node": "99",
+            "output_path": str(tmp_path / "image.png"),
+        })
+
+        assert result.success is True
+        assert result.data["server_cleanup"] == {
+            "attempted": False,
+            "history_deleted": False,
+            "warnings": [],
+        }
+
     def test_custom_workflow_accepts_model_stack_provenance(self, tmp_path):
         tool = ComfyUIVideo()
         tool._client.is_available = lambda: True
@@ -468,6 +703,144 @@ class TestCustomWorkflowContract:
         assert provenance["source"] == "bundled"
         assert provenance["workflow_hash_sha256"]
         assert any(item["role"] == "vae" for item in provenance["model_stack"])
+
+
+# ------------------------------------------------------------------
+# Qwen-Image-Edit-2511 image editing contract
+# ------------------------------------------------------------------
+
+class TestQwenImageEditContract:
+
+    def test_declares_image_edit_capability(self):
+        tool = ComfyUIImage()
+        assert "image_edit" in tool.capabilities
+        assert tool.supports.get("image_edit") is True
+
+    def test_schema_exposes_source_image_fields(self):
+        tool = ComfyUIImage()
+        props = tool.input_schema["properties"]
+        assert "image_path" in props
+        assert "image_url" in props
+        assert "image editing" in props["prompt"]["description"]
+
+    def test_edit_branch_uploads_image_and_patches_nodes(self, tmp_path, monkeypatch):
+        from tools._comfyui.client import ComfyUIClient
+
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.check_models = lambda required: (list(required), [])
+        seen = {}
+
+        def fake_upload(local_path, name):
+            seen["uploaded"] = name
+            return "server_ref.png"
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            seen["output_node"] = output_node
+            return [Path(dest)]
+
+        tool._client.upload_image = fake_upload
+        tool._client.generate = fake_generate
+
+        src = tmp_path / "ref.png"
+        src.write_bytes(b"fake-png")
+        out = tmp_path / "edited.png"
+
+        result = tool.execute({
+            "prompt": "给人物换一套西装",
+            "image_path": str(src),
+            "seed": 123,
+            "output_path": str(out),
+        })
+
+        assert result.success is True
+        assert seen["uploaded"] == "ref.png"
+        assert seen["output_node"] == "9"
+        w = seen["workflow"]
+        assert w["41"]["inputs"]["image"] == "server_ref.png"
+        assert w["170:151"]["inputs"]["prompt"] == "给人物换一套西装"
+        assert w["170:149"]["inputs"]["prompt"] == ""
+        assert w["170:169"]["inputs"]["seed"] == 123
+        assert w["9"]["inputs"]["filename_prefix"] == "edited"
+        assert result.model == "qwen-image-edit-2511-fp8mixed"
+        assert result.data["mode"] == "image_edit"
+        assert result.data["source_image"] == str(src)
+        provenance = result.data["workflow_provenance"]
+        assert provenance["source"] == "bundled"
+        assert provenance["workflow"] == "image_qwen_image_edit_2511_api.json"
+        assert provenance["output_node"] == "9"
+        assert any(item["role"] == "lora" for item in provenance["model_stack"])
+
+    def test_edit_branch_downloads_image_url(self, tmp_path, monkeypatch):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.check_models = lambda required: (list(required), [])
+        seen = {}
+
+        class FakeResp:
+            content = b"fake-png"
+
+            def raise_for_status(self):
+                return None
+
+        def fake_get(url, timeout=60):
+            seen["url"] = url
+            return FakeResp()
+
+        monkeypatch.setattr("tools.graphics.comfyui_image.requests.get", fake_get)
+
+        def fake_upload(local_path, name):
+            seen["uploaded"] = name
+            seen["local"] = Path(local_path)
+            return "server_ref.png"
+
+        tool._client.upload_image = fake_upload
+        tool._client.generate = lambda workflow, output_node, dest, **kwargs: [Path(dest)]
+
+        out = tmp_path / "edited.png"
+        result = tool.execute({
+            "prompt": "把背景换成纯白色",
+            "image_url": "https://example.com/ref.png",
+            "output_path": str(out),
+        })
+
+        assert result.success is True
+        assert seen["url"] == "https://example.com/ref.png"
+        assert seen["uploaded"] == "edited_source.png"
+        # Downloaded temp file is cleaned up.
+        assert not seen["local"].exists()
+
+    def test_edit_missing_models_are_structured(self):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.check_models = lambda required: (
+            [],
+            ["qwen_image_vae.safetensors"],
+        )
+
+        result = tool.execute({"prompt": "x", "image_path": "/tmp/ref.png"})
+
+        assert result.success is False
+        assert result.data["missing_models"][0]["name"] == "qwen_image_vae.safetensors"
+        assert result.data["missing_models"][0]["destination_hint"] == "ComfyUI/models/vae/"
+        assert result.data["missing_models"][0]["download_url"]
+        assert result.data["workflow"] == "image_qwen_image_edit_2511_api.json"
+        assert result.data["operation"] == "image_edit"
+
+    def test_selector_keeps_image_tool_for_edit_request(self):
+        selector = ImageSelector()
+        candidates = [ComfyUIImage()]
+        inputs = {"prompt": "x", "generation_mode": "edit", "image_path": "/tmp/ref.png"}
+        filtered = selector._filter_candidates(inputs, candidates)
+        assert [t.name for t in filtered] == ["comfyui_image"]
+
+    def test_selector_keeps_image_tool_for_image_url_request(self):
+        selector = ImageSelector()
+        candidates = [ComfyUIImage()]
+        inputs = {"prompt": "x", "image_url": "https://example.com/ref.png"}
+        filtered = selector._filter_candidates(inputs, candidates)
+        assert [t.name for t in filtered] == ["comfyui_image"]
 
 
 class TestComfyUISetupOffer:

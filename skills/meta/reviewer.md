@@ -141,6 +141,43 @@ Structure your review as:
 | compose | Playability, duration accuracy, audio quality, pre-compose validation pass |
 | publish | SEO quality, metadata completeness, export packaging |
 
+## Visual Quality Review
+
+Run at **every stage that produces or verifies image/video assets** (assets, edit, compose). Use `image_understand_openai` / `video_understand_openai` to check the actual media, not just metadata. Both tools support a free local `quality` mode (blur/brightness/contrast metrics, no API key needed) and API modes (describe/qa/classify, requires `OPENAI_VISION_API_KEY`).
+
+### When to run:
+- **assets** — validate generated images match their scene descriptions (`image_understand_openai` `qa` mode)
+- **compose** — validate the rendered video: caption placement, transitions, overall quality (`video_understand_openai` `describe`/`qa`/`quality`)
+
+### Automated quality gate (free, local — no API key):
+```python
+from tools.analysis.video_understand_openai import VideoUnderstandOpenAI
+from tools.analysis.image_understand_openai import ImageUnderstandOpenAI
+
+# Video frames: fail if blur_score < 100, brightness outside 50-200, contrast < 30
+video_result = VideoUnderstandOpenAI().execute({
+    'input_path': 'path/to/render.mp4', 'mode': 'quality',
+})
+# Stills/keyframes
+image_result = ImageUnderstandOpenAI().execute({
+    'input_path': 'path/to/asset.png', 'mode': 'quality',
+})
+```
+
+### Semantic checks (API mode, richer):
+```python
+# Does the render match the approved scene plan?
+video_understand_openai.execute({
+    'input_path': 'path/to/render.mp4', 'mode': 'qa',
+    'query': 'Are the captions positioned at the bottom and readable?',
+})
+```
+
+### Findings from visual QA:
+- **critical** — blur_score < 100, brightness outside 50-200, contrast < 30, missing/wrong captions, black frames
+- **suggestion** — mild color cast, minor framing drift, soft focus on one scene
+- Any critical visual finding MUST propose a fix (re-render, re-grade, regenerate asset)
+
 ## Reference Alignment Review
 
 Run at **every stage** when a VideoAnalysisBrief exists (reference-driven production).

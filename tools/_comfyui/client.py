@@ -29,6 +29,8 @@ class ComfyUIClient:
       2. GET  /history/{id}     → poll until outputs appear
       3. GET  /view?filename=…  → download the generated artifact
       4. POST /upload/image     → stage a local image for I2V workflows
+      5. POST /upload/audio     → stage a local audio clip for LoadAudio nodes
+      6. POST /history/{id}     → delete the finished task record (best-effort)
     """
 
     def __init__(self, server_url: str | None = None) -> None:
@@ -36,6 +38,12 @@ class ComfyUIClient:
             server_url
             or os.environ.get("COMFYUI_SERVER_URL", "http://localhost:8188")
         ).rstrip("/")
+        self._last_cleanup_warnings: list[str] = []
+        self._last_cleanup: dict = {
+            "attempted": False,
+            "ok": False,
+            "message": "",
+        }
 
     # ------------------------------------------------------------------
     # Health
@@ -217,6 +225,52 @@ class ComfyUIClient:
         resp.raise_for_status()
         return resp.json()["name"]
 
+    def upload_audio(self, local_path: Path, name: str) -> str:
+        """Upload a local audio file so it can be referenced by LoadAudio nodes.
+
+        Returns the server-side filename.
+        """
+        with open(local_path, "rb") as f:
+            resp = requests.post(
+                f"{self.server_url}/upload/audio",
+                files={"audio": (name, f, "audio/wav")},
+                timeout=60,
+            )
+        resp.raise_for_status()
+        return resp.json()["name"]
+
+    def delete_history(self, prompt_id: str) -> tuple[bool, str]:
+        """Delete a finished task record from the server history.
+
+        Supports both API layouts in the wild:
+          * new-style:  ``POST /history/{prompt_id}`` with ``{"delete": [id]}``
+          * old-style:  ``POST /history``          with ``{"delete": [id]}``
+        Falls back automatically when the server rejects the new-style URL.
+
+        Best-effort: never raises — the caller decides what to do with the
+        outcome.  Returns ``(ok, message)``.
+        """
+        payload = {"delete": [prompt_id]}
+        attempts = (
+            f"{self.server_url}/history/{prompt_id}",
+            f"{self.server_url}/history",
+        )
+        last_error = None
+        for url in attempts:
+            try:
+                resp = requests.post(url, json=payload, timeout=15)
+                if resp.status_code == 405:
+                    # Endpoint not supported on this server — try the other.
+                    last_error = f"{resp.status_code} {resp.reason} for {url}"
+                    continue
+                resp.raise_for_status()
+                return True, f"Deleted server history record {prompt_id}"
+            except Exception as exc:  # noqa: BLE001 - cleanup must never block
+                last_error = str(exc)
+        return False, (
+            f"Could not delete server history record {prompt_id}: {last_error}"
+        )
+
     # ------------------------------------------------------------------
     # High-level helper
     # ------------------------------------------------------------------
@@ -229,8 +283,22 @@ class ComfyUIClient:
         *,
         timeout: int = 600,
         interval: int = 5,
+        cleanup_history: bool | None = None,
     ) -> list[Path]:
-        """Submit → poll → download.  Returns list of artifact paths."""
+        """Submit → poll → download.  Returns list of artifact paths.
+
+        After all artifacts are downloaded successfully, the finished task
+        record is deleted from the server history (best-effort).  Cleanup
+        failures are recorded in :attr:`last_cleanup_warnings` and never
+        raise, so a successful download is never turned into an error.
+
+        Set *cleanup_history* to ``True``/``False`` to force the behaviour;
+        the default (``None``) honours the ``COMFYUI_KEEP_SERVER_OUTPUTS``
+        environment variable — when set to ``1``/``true``/``yes`` the server
+        history is kept instead of deleted.
+        """
+        self._last_cleanup_warnings = []
+        self._last_cleanup = {"attempted": False, "ok": False, "message": ""}
         prompt_id = self.submit(workflow)
         entry = self.poll(prompt_id, timeout=timeout, interval=interval)
 
@@ -238,11 +306,13 @@ class ComfyUIClient:
         node_output = outputs.get(output_node, {})
 
         # ComfyUI stores outputs under different keys: "images" (PNG/WEBP),
-        # "gifs" (VHS_VideoCombine), or "videos" (core SaveVideo).
+        # "gifs" (VHS_VideoCombine), "videos" (core SaveVideo), or "audio"
+        # (SaveAudio / SaveAudioMP3).
         items = (
             node_output.get("videos")
             or node_output.get("images")
             or node_output.get("gifs")
+            or node_output.get("audio")
         )
         if not items:
             raise ComfyUIError(
@@ -264,7 +334,45 @@ class ComfyUIClient:
                 item.get("type", "output"),
             )
             paths.append(target)
+
+        if (
+            cleanup_history
+            if cleanup_history is not None
+            else not self._keep_server_outputs()
+        ):
+            ok, msg = self.delete_history(prompt_id)
+            self._last_cleanup = {"attempted": True, "ok": ok, "message": msg}
+            if not ok:
+                self._last_cleanup_warnings.append(msg)
+        else:
+            self._last_cleanup = {
+                "attempted": False,
+                "ok": False,
+                "message": "Skipped: server cleanup disabled",
+            }
         return paths
+
+    @staticmethod
+    def _keep_server_outputs() -> bool:
+        """True when COMFYUI_KEEP_SERVER_OUTPUTS=1 disables cleanup."""
+        return os.environ.get("COMFYUI_KEEP_SERVER_OUTPUTS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    @property
+    def last_cleanup_warnings(self) -> list[str]:
+        """Warnings from the most recent ``generate()`` server cleanup."""
+        return list(self._last_cleanup_warnings)
+
+    @property
+    def last_cleanup(self) -> dict:
+        """Outcome of the server-cleanup step of the last ``generate()``.
+
+        Returns ``{"attempted": bool, "ok": bool, "message": str}``.
+        """
+        return dict(self._last_cleanup)
 
     # ------------------------------------------------------------------
     # Workflow helpers

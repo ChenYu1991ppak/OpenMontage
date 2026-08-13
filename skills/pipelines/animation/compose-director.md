@@ -189,7 +189,17 @@ npx remotion render Explainer \
 
 ### 8. Post-Render Self-Review (MANDATORY)
 
-After rendering, extract mid-scene frames and visually inspect:
+After rendering, run an automated semantic check first (preferred), then extract mid-scene frames and visually inspect:
+
+```python
+from tools.analysis.video_understand_openai import VideoUnderstandOpenAI
+result = VideoUnderstandOpenAI().execute({
+    'input_path': 'final.mp4',
+    'mode': 'describe',          # or 'qa' / 'quality' / 'classify'
+})
+# quality mode (free, local): fail if blur_score < 100, brightness outside 50-200, contrast < 30
+```
+Use `qa` mode for targeted checks (e.g. "Are the particles visible?", "Is any scene black?").
 
 ```bash
 # Extract one frame from the middle of each scene

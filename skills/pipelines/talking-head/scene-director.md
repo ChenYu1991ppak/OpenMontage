@@ -27,10 +27,11 @@ Before watching the content, analyze the raw footage to understand the physical 
    ffmpeg -i <footage> -vf "select='not(mod(n\,TOTAL_FRAMES/5))'" -vsync vfr -frames:v 5 frame_%02d.png
    ```
 
-2. **Run visual_qa or histogram analysis** on each sampled frame to detect:
-   - **Background type:** Green screen / blue screen / natural background. Green/blue screens show a dominant narrow-band color spike in the histogram. Use `visual_qa` with prompt "Is this a green screen or blue screen background?" for confirmation.
-   - **Speaker position:** Center, left, or right of frame. Estimate the approximate bounding box (e.g., "speaker occupies center 40% of frame, from x=30% to x=70%").
-   - **Lighting quality:** Even studio lighting, harsh shadows, backlit, mixed color temperature. Note any issues that may affect chroma keying.
+2. **Understand the sampled frames** using `image_understand_openai` (preferred, per-frame) or `video_understand_openai` (whole-video), with `visual_qa`/histogram as local fallback, to detect:
+   - **Background type:** Green screen / blue screen / natural background. Green/blue screens show a dominant narrow-band color spike in the histogram. Use `image_understand_openai` `qa` mode with prompt "Is this a green screen or blue screen background?" (or `visual_qa` if the vision API is unavailable) for confirmation.
+   - **Speaker position:** Center, left, or right of frame. Estimate the approximate bounding box (e.g., "speaker occupies center 40% of frame, from x=30% to x=70%"). `image_understand_openai` `qa` mode: "Where is the speaker positioned in the frame?"
+   - **Lighting quality:** Even studio lighting, harsh shadows, backlit, mixed color temperature. Note any issues that may affect chroma keying. `image_understand_openai` `qa` mode: "Describe the lighting quality and any shadows."
+   - **Overall content:** `video_understand_openai` `describe` mode to summarize what the speaker is showing/demonstrating on screen.
 
 3. **Green screen detected?**
    - If yes, note that `green_screen_processor` tool will be needed in the compose stage.

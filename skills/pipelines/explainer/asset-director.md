@@ -221,6 +221,18 @@ Assemble all generated assets into the manifest:
 - [ ] Diagrams are legible and complete
 - [ ] Total cost within budget
 
+**Semantic validation (preferred for image assets):** Use `image_understand_openai` to verify each generated image matches its scene description and is technically sound:
+```python
+from tools.analysis.image_understand_openai import ImageUnderstandOpenAI
+result = ImageUnderstandOpenAI().execute({
+    'input_path': 'assets/scene_03.png',
+    'mode': 'qa',
+    'query': 'Does this image show: [scene description]?',
+})
+# quality mode (free, local): fail if blur_score < 100, brightness outside 50-200, contrast < 30
+```
+Regenerate any asset that fails semantic or quality checks before proceeding (max 3 iterations).
+
 ### Step 8: Self-Evaluate
 
 Score (1-5):

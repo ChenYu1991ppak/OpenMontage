@@ -419,7 +419,31 @@ video_compose.execute({
 
 ### Step 7: Visual QA
 
-Use `visual_qa` to verify the output before declaring success:
+**Run semantic understanding first** using `video_understand_openai` (preferred, Moonshot API or free local `quality` mode), with `visual_qa` as the local ffmpeg fallback:
+
+```
+video_understand_openai.execute({
+    "input_path": "<final_video>",
+    "mode": "describe",          # or "qa" / "quality" / "classify"
+})
+```
+Then use `qa` mode for targeted checks:
+```
+video_understand_openai.execute({
+    "input_path": "<final_video>",
+    "mode": "qa",
+    "query": "Are the captions positioned at the bottom of the frame, not covering the speaker's face?",
+})
+```
+And `quality` mode (free, local) for numeric gates:
+```
+video_understand_openai.execute({
+    "input_path": "<final_video>",
+    "mode": "quality",           # blur/brightness/contrast — fail if blur_score<100, brightness outside 50-200, contrast<30
+})
+```
+
+Use `visual_qa` to extract frames at specific timestamps (then **read each frame** to verify):
 ```
 visual_qa.execute({
     "operation": "review",
@@ -427,7 +451,7 @@ visual_qa.execute({
     "timestamps": [3.0, 10.0, 25.0, 50.0, 100.0, 170.0],
 })
 ```
-Then **read each extracted frame** to verify:
+Verify with the extracted frames (and `video_understand_openai` descriptions):
 - Captions are visible and positioned at the bottom (not on the face)
 - Face enhancement is applied (skin looks smooth, not over-processed)
 - Transitions are clean (no artifacts at transition points)

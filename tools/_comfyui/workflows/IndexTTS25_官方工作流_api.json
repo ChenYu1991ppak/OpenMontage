@@ -1,0 +1,217 @@
+{
+  "1": {
+    "inputs": {
+      "audio": "test_reference.wav"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "2": {
+    "inputs": {
+      "text": "欢迎大家使用IndexTTS二点五语音合成系统，这是一个官方引擎驱动的分模块工作流。",
+      "lang": "ZH",
+      "host": 1,
+      "port": true,
+      "duration_factor": 0.8,
+      "do_sample": 0.8,
+      "temperature": 30,
+      "top_p": 3,
+      "top_k": 10,
+      "num_beams": 1500,
+      "repetition_penalty": 200,
+      "max_mel_tokens": 1500,
+      "interval_silence": 200,
+      "reference_audio": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "IndexTTS25TTS",
+    "_meta": {
+      "title": "IndexTTS2.5 TTS"
+    }
+  },
+  "3": {
+    "inputs": {
+      "filename_prefix": "indextts25_basic",
+      "quality": "V0",
+      "audio": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "保存音频 (MP3)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text": "这个坏消息让我非常生气，太过分了！",
+      "lang": "ZH",
+      "happy": 0,
+      "angry": 0.9,
+      "sad": 0,
+      "afraid": 0,
+      "disgusted": 0,
+      "melancholic": 0,
+      "surprised": 0,
+      "calm": 0,
+      "emo_alpha": 0.8,
+      "host": 1,
+      "port": true,
+      "duration_factor": 0.8,
+      "do_sample": 0.8,
+      "temperature": 30,
+      "top_p": 3,
+      "top_k": 10,
+      "num_beams": 1500,
+      "repetition_penalty": 200,
+      "max_mel_tokens": 1500,
+      "interval_silence": 200,
+      "reference_audio": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "IndexTTS25TTSEmotionVector",
+    "_meta": {
+      "title": "IndexTTS2.5 TTS (Emotion Vector)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "filename_prefix": "indextts25_emotion_vector",
+      "quality": "V0",
+      "audio": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "保存音频 (MP3)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "今天收到录取通知，太开心了！",
+      "lang": "ZH",
+      "emotion_text": "兴高采烈，欢呼雀跃",
+      "use_main_text": false,
+      "emo_alpha": 1,
+      "host": 1,
+      "port": true,
+      "duration_factor": 0.8,
+      "do_sample": 0.8,
+      "temperature": 30,
+      "top_p": 3,
+      "top_k": 10,
+      "num_beams": 1500,
+      "repetition_penalty": 200,
+      "max_mel_tokens": 1500,
+      "interval_silence": 200,
+      "reference_audio": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "IndexTTS25TTSEmotionText",
+    "_meta": {
+      "title": "IndexTTS2.5 TTS (Emotion Text)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "filename_prefix": "indextts25_emotion_text",
+      "quality": "V0",
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "保存音频 (MP3)"
+    }
+  },
+  "9": {
+    "inputs": {
+      "text": "用悲伤的语调说：一切都结束了。",
+      "lang": "ZH",
+      "emo_alpha": 0.8,
+      "host": 1,
+      "port": true,
+      "duration_factor": 0.8,
+      "do_sample": 0.8,
+      "temperature": 30,
+      "top_p": 3,
+      "top_k": 10,
+      "num_beams": 1500,
+      "repetition_penalty": 200,
+      "max_mel_tokens": 1500,
+      "interval_silence": 200,
+      "reference_audio": [
+        "1",
+        0
+      ],
+      "emotion_audio": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "IndexTTS25TTSEmotionAudio",
+    "_meta": {
+      "title": "IndexTTS2.5 TTS (Emotion Audio)"
+    }
+  },
+  "10": {
+    "inputs": {
+      "filename_prefix": "indextts25_emotion_audio",
+      "quality": "V0",
+      "audio": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "保存音频 (MP3)"
+    }
+  },
+  "11": {
+    "inputs": {
+      "audio": "test_reference.wav"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "12": {
+    "inputs": {
+      "action": "load",
+      "host": "127.0.0.1",
+      "port": 8108,
+      "model_dir": "/mnt/models/IndexTTS-2.5",
+      "venv": "/mnt/indextts25-venv"
+    },
+    "class_type": "IndexTTS25Loader",
+    "_meta": {
+      "title": "IndexTTS2.5 Loader"
+    }
+  },
+  "13": {
+    "inputs": {
+      "host": "127.0.0.1",
+      "port": 8108,
+      "stop_service": false
+    },
+    "class_type": "IndexTTS25Unload",
+    "_meta": {
+      "title": "IndexTTS2.5 释放显存"
+    }
+  }
+}

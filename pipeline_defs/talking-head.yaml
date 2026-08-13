@@ -185,6 +185,8 @@ stages:
       - showcase_card    # letterboxed showcase cards with typography
       - video_stitch     # multi-clip assembly with transitions
       - visual_qa        # frame extraction + quality validation
+      - video_understand_openai  # semantic video understanding (Moonshot API / local quality mode)
+      - image_understand_openai  # single-frame understanding (Moonshot API / local quality mode)
     tools_available:
       - video_compose
       - audio_mixer
@@ -200,6 +202,8 @@ stages:
       - showcase_card
       - video_stitch
       - visual_qa
+      - video_understand_openai
+      - image_understand_openai
     checkpoint_required: true
     human_approval_default: false
     review_focus:

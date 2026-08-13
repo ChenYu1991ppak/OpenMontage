@@ -23,7 +23,7 @@ For model-specific tips, see the linked guides below.
 | **Runway Gen-4** | [Runway Prompting Guide](https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide) | "Focus on motion, not appearance." One scene per clip. Simplicity wins. |
 | **Kling 2.6** | [Kling Prompt Guide](https://fal.ai/learn/devs/kling-2-6-pro-prompt-guide) | 4-part structure. Supports `++emphasis++` syntax for key elements. |
 | **Kling Official** | Layer 3 `.agents/skills/kling-official/` | Direct official API. Use `provider="kling_official"` to distinguish it from fal.ai Kling. `api_family` selects Classic, Turbo, or Omni; Turbo image-to-video needs a URL reference image. |
-| **Wan 2.1 / CogVideoX** | Use this generic guide | No official prompt guide. Standard cinematographic vocabulary works well. |
+| **MiniMax H3 (FL2VA, ComfyUI local)** | Layer 3 `.agents/skills/h3-prompt-writing/` (T2VA/I2VA/FL2VA/L2VA/Ref2VA modes) + 8 stylized generator skills (`3d-animation-short-generator`, `brand-promo-video-generator`, `co-op-game-intro-generator`, `handdrawn-live-video-generator`, `minimalist-product-ad-generator`, `music-video-subtitle-generator`, `paper-collage-explainer-generator`, `papercraft-stop-motion-explainer`) | Qwen3VL-32B CLIP; Chinese/English natural-language prompts work well. Native 24fps with synchronized audio. |
 
 ## Order Matters
 
@@ -60,7 +60,7 @@ Empirical sweet spots from the paper's Section 6 findings — different models r
 | Model | Sweet Spot | Notes |
 |---|---|---|
 | Seedance 2.0 | 200–400 words for hero shots, 80–150 for inserts | Reward long, structured 5-aspect prompts |
-| Wan 2.2 | 200–400 words | Fine-tuned on long captions |
+| MiniMax H3 (FL2VA) | 100–250 words | Qwen3VL-32B CLIP; structured 5-aspect prompts work well, Chinese/English |
 | Sora 2 / VEO 3.1 | 100–250 words | Plateau past ~250 |
 | LTX-2 | ≤ 80 words | Degrades past that, keep tight |
 | Runway Gen-4 | ≤ 60 words | "Focus on motion, not appearance" |

@@ -87,6 +87,35 @@ BUNDLED_MODEL_STACKS: dict[str, list[dict[str, Any]]] = {
     ],
     "minimax-h3-t2v": _MINIMAX_H3_STACK,
     "minimax-h3-i2v": _MINIMAX_H3_STACK,
+    "qwen-image-edit-2511": [
+        {
+            "role": "diffusion_model",
+            "name": "qwen_image_edit_2511_fp8mixed.safetensors",
+            "quantization": "FP8 mixed",
+            "destination_hint": "ComfyUI/models/diffusion_models/",
+            "download_url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+        },
+        {
+            "role": "text_encoder",
+            "name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+            "quantization": "FP8 scaled",
+            "destination_hint": "ComfyUI/models/text_encoders/",
+            "download_url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+        },
+        {
+            "role": "vae",
+            "name": "qwen_image_vae.safetensors",
+            "destination_hint": "ComfyUI/models/vae/",
+            "download_url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+        },
+        {
+            "role": "lora",
+            "name": "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-fp32.safetensors",
+            "quantization": "FP32",
+            "destination_hint": "ComfyUI/models/loras/",
+            "download_url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+        },
+    ],
 }
 
 

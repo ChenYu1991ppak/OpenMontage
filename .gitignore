@@ -97,3 +97,6 @@ venv/
 
 # Backlot local cache (thumbnails)
 .backlot/
+
+# Locally downloaded model weights (ModelScope mirror, see tools/analysis/transcriber.py)
+models/whisper/

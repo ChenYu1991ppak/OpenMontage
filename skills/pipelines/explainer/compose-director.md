@@ -341,6 +341,19 @@ result = Transcriber().execute({
 ```
 
 **6d. Visual inspection — review each frame:**
+
+**Automated semantic check (preferred):**
+```python
+from tools.analysis.video_understand_openai import VideoUnderstandOpenAI
+result = VideoUnderstandOpenAI().execute({
+    'input_path': 'path/to/rendered_video.mp4',
+    'mode': 'describe',          # or 'qa' / 'quality' / 'classify'
+})
+# quality mode (free, local): fail if blur_score < 100, brightness outside 50-200, contrast < 30
+```
+Use `qa` mode for targeted checks, e.g. "Are the subtitles visible and correctly positioned?", "Does the CTA screen show the correct text?".
+
+**Then review each extracted frame:**
 - Does the background color/gradient match intent? (watch for white backgrounds on dark-themed videos)
 - Are images rendering correctly? (not blank, not stretched)
 - Are subtitles/captions visible and properly spaced?
